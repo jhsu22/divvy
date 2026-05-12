@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #f9f7f2;
+    color: #1a1a18;
+    font-family: 'IM Fell English', Georgia, serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer utilities {
+  .rule-double {
+    border-top: 3px double #1a1a18;
+  }
+  .rule-thick {
+    border-top: 2px solid #1a1a18;
+  }
+  .rule-thin {
+    border-top: 1px solid #1a1a18;
+  }
+}
