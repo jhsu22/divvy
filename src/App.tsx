@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Receipt, LineItem, Step } from './types'
+import { decodeShare } from './lib/share'
 import Header from './components/Header'
 import ApiKeySetup from './components/ApiKeySetup'
 import ReceiptUpload from './components/ReceiptUpload'
@@ -22,28 +23,30 @@ const PREV_STEP: Partial<Record<Step, Step>> = {
   summary: 'assign',
 }
 
-function loadSharedData(): { receipt: Receipt; people: string[] } | null {
-  try {
-    const hash = window.location.hash.slice(1)
-    if (!hash) return null
-    return JSON.parse(atob(hash)) as { receipt: Receipt; people: string[] }
-  } catch {
-    return null
-  }
-}
-
 export default function App() {
-  const shared = loadSharedData()
+  const hasHash = !!window.location.hash.slice(1)
 
   const [apiKey, setApiKey] = useState<string>(
     () => localStorage.getItem('divvy-api-key') ?? '',
   )
   const [step, setStep] = useState<Step>(() => {
-    if (shared) return 'summary'
+    if (hasHash) return 'summary'
     return localStorage.getItem('divvy-api-key') ? 'upload' : 'setup'
   })
-  const [receipt, setReceipt] = useState<Receipt | null>(shared?.receipt ?? null)
-  const [people, setPeople] = useState<string[]>(shared?.people ?? [])
+  const [receipt, setReceipt] = useState<Receipt | null>(null)
+  const [people, setPeople] = useState<string[]>([])
+
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (!hash) return
+    decodeShare(hash)
+      .then((data) => {
+        const d = data as { receipt: Receipt; people: string[] }
+        setReceipt(d.receipt)
+        setPeople(d.people)
+      })
+      .catch(() => setStep('upload'))
+  }, [])
 
   function handleApiKey(key: string) {
     setApiKey(key)
@@ -112,6 +115,12 @@ export default function App() {
 
           {step === 'summary' && receipt && (
             <SummaryView receipt={receipt} people={people} onReset={reset} />
+          )}
+
+          {step === 'summary' && !receipt && (
+            <div className="px-4 py-16 text-center font-mono text-xs uppercase tracking-widest text-ink/30">
+              Loading…
+            </div>
           )}
         </main>
       </div>

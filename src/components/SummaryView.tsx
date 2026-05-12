@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Receipt } from '../types'
 import { calculate, fmt } from '../lib/calculations'
+import { encodeShare } from '../lib/share'
 
 interface Props {
   receipt: Receipt
@@ -34,9 +35,9 @@ function buildShareText(receipt: Receipt, people: string[], shareUrl: string): s
   return lines.join('\n')
 }
 
-function buildShareUrl(receipt: Receipt, people: string[]): string {
-  const data = btoa(JSON.stringify({ receipt, people }))
-  return `${window.location.origin}${window.location.pathname}#${data}`
+async function buildShareUrl(receipt: Receipt, people: string[]): Promise<string> {
+  const hash = await encodeShare({ receipt, people })
+  return `${window.location.origin}${window.location.pathname}#${hash}`
 }
 
 export default function SummaryView({ receipt, people, onReset }: Props) {
@@ -44,7 +45,7 @@ export default function SummaryView({ receipt, people, onReset }: Props) {
   const [copied, setCopied] = useState(false)
 
   async function copySummary() {
-    const url = buildShareUrl(receipt, people)
+    const url = await buildShareUrl(receipt, people)
     const text = buildShareText(receipt, people, url)
     await navigator.clipboard.writeText(text)
     setCopied(true)
