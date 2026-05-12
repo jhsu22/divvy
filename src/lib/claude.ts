@@ -1,16 +1,20 @@
 import type { Receipt } from '../types'
 
-const PROMPT = `You are a receipt parser. Given an image of a receipt, extract all line items and totals.
+const PROMPT = `You are a receipt parser. Given an image of a receipt, extract all line items, totals, and metadata.
 Rules:
 - prices are numbers (e.g. 12.50, not "$12.50")
 - if tip or tax are not found, use 0
 - if subtotal is not found, sum the items
 - include every distinct line item; exclude totals/subtotals/tax/tip rows from items[]
-- item names should be concise and readable`
+- item names should be concise and readable
+- restaurant: the name of the restaurant or establishment (empty string if not found)
+- date: the date on the receipt in YYYY-MM-DD format (empty string if not found)`
 
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
+    restaurant: { type: 'string' },
+    date: { type: 'string' },
     items: {
       type: 'array',
       items: {
@@ -27,7 +31,7 @@ const RESPONSE_SCHEMA = {
     tip: { type: 'number' },
     total: { type: 'number' },
   },
-  required: ['items', 'subtotal', 'tax', 'tip', 'total'],
+  required: ['restaurant', 'date', 'items', 'subtotal', 'tax', 'tip', 'total'],
 }
 
 export async function parseReceipt(
@@ -76,6 +80,8 @@ export async function parseReceipt(
   if (!text) throw new Error('Empty response from API')
 
   const parsed = JSON.parse(text) as {
+    restaurant: string
+    date: string
     items: { name: string; price: number }[]
     subtotal: number
     tax: number
@@ -84,6 +90,8 @@ export async function parseReceipt(
   }
 
   return {
+    restaurant: parsed.restaurant || undefined,
+    date: parsed.date || undefined,
     items: parsed.items.map((item, i) => ({
       id: `item-${i}`,
       name: item.name,

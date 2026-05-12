@@ -12,11 +12,17 @@ export default function ReceiptUpload({ apiKey, onDone }: Props) {
   const [preview, setPreview] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [scanned, setScanned] = useState<Receipt | null>(null)
+  const [restaurant, setRestaurant] = useState('')
+  const [date, setDate] = useState('')
 
   function handleFile(file: File) {
     const reader = new FileReader()
     reader.onload = (e) => setPreview(e.target?.result as string)
     reader.readAsDataURL(file)
+    setScanned(null)
+    setRestaurant('')
+    setDate('')
   }
 
   async function scan() {
@@ -27,12 +33,23 @@ export default function ReceiptUpload({ apiKey, onDone }: Props) {
       const [header, b64] = preview.split(',')
       const mediaType = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg'
       const receipt = await parseReceipt(apiKey, b64, mediaType)
-      onDone(receipt)
+      setScanned(receipt)
+      setRestaurant(receipt.restaurant ?? '')
+      setDate(receipt.date ?? '')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
+  }
+
+  function confirm() {
+    if (!scanned) return
+    onDone({
+      ...scanned,
+      restaurant: restaurant.trim() || undefined,
+      date: date.trim() || undefined,
+    })
   }
 
   return (
@@ -72,11 +89,42 @@ export default function ReceiptUpload({ apiKey, onDone }: Props) {
             className="w-full max-h-64 object-contain border border-ink/20"
           />
           <button
-            onClick={() => { setPreview(null); setError(null) }}
+            onClick={() => { setPreview(null); setScanned(null); setError(null) }}
             className="w-full border border-ink/30 py-2 font-mono text-xs uppercase tracking-widest text-ink/50"
           >
             Retake
           </button>
+        </div>
+      )}
+
+      {scanned && (
+        <div className="space-y-3">
+          <div className="rule-thin" />
+          <div className="space-y-2">
+            <div>
+              <label className="font-mono text-xs uppercase tracking-widest text-ink/50 block mb-1">
+                Restaurant
+              </label>
+              <input
+                type="text"
+                value={restaurant}
+                onChange={(e) => setRestaurant(e.target.value)}
+                placeholder="e.g. Nobu"
+                className="w-full border border-ink/30 px-3 py-2 font-body text-sm bg-paper focus:outline-none focus:border-ink"
+              />
+            </div>
+            <div>
+              <label className="font-mono text-xs uppercase tracking-widest text-ink/50 block mb-1">
+                Date
+              </label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full border border-ink/30 px-3 py-2 font-body text-sm bg-paper focus:outline-none focus:border-ink"
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -86,13 +134,22 @@ export default function ReceiptUpload({ apiKey, onDone }: Props) {
         </p>
       )}
 
-      <button
-        onClick={scan}
-        disabled={!preview || loading}
-        className="w-full border border-ink py-2.5 font-mono text-sm uppercase tracking-widest disabled:opacity-30 active:bg-ink active:text-paper transition-colors"
-      >
-        {loading ? 'Scanning…' : 'Scan Receipt →'}
-      </button>
+      {!scanned ? (
+        <button
+          onClick={scan}
+          disabled={!preview || loading}
+          className="w-full border border-ink py-2.5 font-mono text-sm uppercase tracking-widest disabled:opacity-30 active:bg-ink active:text-paper transition-colors"
+        >
+          {loading ? 'Scanning…' : 'Scan Receipt →'}
+        </button>
+      ) : (
+        <button
+          onClick={confirm}
+          className="w-full border border-ink py-2.5 font-mono text-sm uppercase tracking-widest active:bg-ink active:text-paper transition-colors"
+        >
+          Continue →
+        </button>
+      )}
     </div>
   )
 }

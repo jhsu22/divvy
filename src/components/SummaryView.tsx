@@ -8,43 +8,45 @@ interface Props {
   onReset: () => void
 }
 
-function buildMarkdown(receipt: Receipt, people: string[]): string {
+function formatDate(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric',
+  })
+}
+
+function buildShareText(receipt: Receipt, people: string[], shareUrl: string): string {
   const totals = calculate(receipt, people)
   const lines: string[] = []
 
-  lines.push('## Divvy — Bill Split')
-  lines.push('')
+  const header = [receipt.restaurant, receipt.date ? formatDate(receipt.date) : '']
+    .filter(Boolean).join(' · ')
+  if (header) lines.push(header, '')
 
   totals.forEach((p) => {
-    lines.push(`**${p.name}** owes **$${fmt(p.total)}**`)
+    lines.push(`${p.name} owes $${fmt(p.total)}`)
   })
 
   lines.push('')
-  lines.push(`> Total: $${fmt(receipt.total)}`)
-  lines.push('')
-  lines.push('---')
-
-  totals.forEach((p) => {
-    lines.push('')
-    lines.push(`### ${p.name}`)
-    p.items.forEach((item) => {
-      lines.push(`- ${item.name}: $${fmt(item.share)}`)
-    })
-    if (p.taxShare > 0) lines.push(`- Tax: $${fmt(p.taxShare)}`)
-    if (p.tipShare > 0) lines.push(`- Tip: $${fmt(p.tipShare)}`)
-    lines.push(`**Total: $${fmt(p.total)}**`)
-  })
+  lines.push(`Total: $${fmt(receipt.total)}`)
+  lines.push(`Full breakdown: ${shareUrl}`)
 
   return lines.join('\n')
+}
+
+function buildShareUrl(receipt: Receipt, people: string[]): string {
+  const data = btoa(JSON.stringify({ receipt, people }))
+  return `${window.location.origin}${window.location.pathname}#${data}`
 }
 
 export default function SummaryView({ receipt, people, onReset }: Props) {
   const totals = calculate(receipt, people)
   const [copied, setCopied] = useState(false)
 
-  async function copyMarkdown() {
-    const md = buildMarkdown(receipt, people)
-    await navigator.clipboard.writeText(md)
+  async function copySummary() {
+    const url = buildShareUrl(receipt, people)
+    const text = buildShareText(receipt, people, url)
+    await navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -53,9 +55,16 @@ export default function SummaryView({ receipt, people, onReset }: Props) {
     <div className="px-4 py-6">
       <div className="mb-5">
         <h2 className="font-serif text-xl font-semibold">Final Ledger</h2>
-        <p className="font-body italic text-sm text-ink/60 mt-1">
-          Each person's share, to the cent.
-        </p>
+        {(receipt.restaurant || receipt.date) && (
+          <p className="font-body text-sm text-ink/70 mt-1">
+            {[receipt.restaurant, receipt.date ? formatDate(receipt.date) : ''].filter(Boolean).join(' · ')}
+          </p>
+        )}
+        {!receipt.restaurant && !receipt.date && (
+          <p className="font-body italic text-sm text-ink/60 mt-1">
+            Each person's share, to the cent.
+          </p>
+        )}
       </div>
 
       <div className="rule-double mb-4" />
@@ -112,10 +121,10 @@ export default function SummaryView({ receipt, people, onReset }: Props) {
 
       <div className="flex gap-2 mt-6">
         <button
-          onClick={copyMarkdown}
+          onClick={copySummary}
           className="flex-1 border border-ink py-2.5 font-mono text-xs uppercase tracking-widest active:bg-ink active:text-paper transition-colors"
         >
-          {copied ? 'Copied ✓' : 'Copy as Markdown'}
+          {copied ? 'Copied ✓' : 'Copy Summary'}
         </button>
         <button
           onClick={onReset}

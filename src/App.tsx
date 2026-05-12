@@ -22,15 +22,28 @@ const PREV_STEP: Partial<Record<Step, Step>> = {
   summary: 'assign',
 }
 
+function loadSharedData(): { receipt: Receipt; people: string[] } | null {
+  try {
+    const hash = window.location.hash.slice(1)
+    if (!hash) return null
+    return JSON.parse(atob(hash)) as { receipt: Receipt; people: string[] }
+  } catch {
+    return null
+  }
+}
+
 export default function App() {
+  const shared = loadSharedData()
+
   const [apiKey, setApiKey] = useState<string>(
     () => localStorage.getItem('divvy-api-key') ?? '',
   )
-  const [step, setStep] = useState<Step>(() =>
-    localStorage.getItem('divvy-api-key') ? 'upload' : 'setup',
-  )
-  const [receipt, setReceipt] = useState<Receipt | null>(null)
-  const [people, setPeople] = useState<string[]>([])
+  const [step, setStep] = useState<Step>(() => {
+    if (shared) return 'summary'
+    return localStorage.getItem('divvy-api-key') ? 'upload' : 'setup'
+  })
+  const [receipt, setReceipt] = useState<Receipt | null>(shared?.receipt ?? null)
+  const [people, setPeople] = useState<string[]>(shared?.people ?? [])
 
   function handleApiKey(key: string) {
     setApiKey(key)

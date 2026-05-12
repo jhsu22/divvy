@@ -11,6 +11,8 @@ export interface Receipt {
   tax: number
   tip: number
   total: number
+  restaurant?: string
+  date?: string
 }
 
 export type Step = 'setup' | 'upload' | 'people' | 'assign' | 'summary'
