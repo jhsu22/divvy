@@ -106,3 +106,32 @@ test('incomplete or truncated scans cannot become valid receipts', () => {
     assert.throws(() => decodeReceiptResponse(value))
   }
 })
+
+test('a missing database table explains how to finish setup without exposing internal errors', async () => {
+  const env = environment()
+  env.SCAN_QUOTA.prepare = () => { throw new Error('D1_ERROR: no such table: scan_quota: server-only-secret') }
+  await mockFetch(() => assert.fail('Google must not be called when database setup fails'), async () => {
+    const result = await onRequest({ request: request(), env })
+    assert.equal(result.status, 503)
+    const text = await result.text()
+    assert.match(text, /scan_quota table is missing/)
+    assert.ok(!text.includes('server-only-secret'))
+  })
+})
+test('Google key, permission, model and request errors produce distinct safe messages', async () => {
+  for (const [status, details, expected] of [
+    [400, [{ reason: 'API_KEY_INVALID' }], /Google rejected the API key/],
+    [403, [], /permissions and restrictions/],
+    [404, [], /gemini-3.5-flash-lite.*HTTP 404/],
+    [400, [], /receipt request.*HTTP 400/],
+    [503, [], /HTTP 503/],
+  ]) {
+    await mockFetch(async () => Response.json({ error: { message: 'server-only-secret', details } }, { status }), async () => {
+      const result = await onRequest({ request: request(), env: environment() })
+      const text = await result.text()
+      assert.equal(result.status, 502)
+      assert.match(text, expected)
+      assert.ok(!text.includes('server-only-secret'))
+    })
+  }
+})

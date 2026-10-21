@@ -52,8 +52,8 @@ export async function onRequest({ request, env }: { request: Request; env: Env }
       imageBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(imageBase64)) return error('Use a JPG, PNG, or WebP receipt image under 5 MB.', 400)
   const limit = Number(env.DAILY_SCAN_LIMIT ?? 30)
   if (!Number.isInteger(limit) || limit < 1 || limit > 10000) return error('Shared scanning limit needs to be configured.', 503)
+  // Reserve quota separately so database setup failures are distinguishable from Google errors.
   try {
-    // Atomic counter across all Pages instances. Failed upstream attempts also count.
     const day = new Date().toISOString().slice(0, 10)
     const quota = await env.SCAN_QUOTA.prepare(`
       INSERT INTO scan_quota (day, requests) VALUES (?, 1)
@@ -61,13 +61,35 @@ export async function onRequest({ request, env }: { request: Request; env: Env }
       RETURNING requests
     `).bind(day, limit).first<{ requests: number }>()
     if (!quota) return error('Today’s shared scanning limit has been reached. Try tomorrow (UTC), use your own key, or enter the receipt manually.', 429)
+  } catch (cause) {
+    const missingTable = cause instanceof Error && /no such table/i.test(cause.message)
+    console.error('Receipt scan quota failure', { missingTable })
+    return error(missingTable
+      ? 'The scan database is connected, but its scan_quota table is missing. The organizer needs to run the database setup SQL.'
+      : 'The scan quota database could not be accessed. The organizer needs to check the SCAN_QUOTA database binding.', 503)
+  }
+  try {
     const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${SCAN_MODELS[model]}:generateContent`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
       body: JSON.stringify(receiptRequest(imageBase64, mediaType)),
       signal: AbortSignal.timeout(55000),
     })
-    if (!upstream.ok) return error(upstream.status === 429 ? 'Google’s scanning quota is temporarily exhausted. Try again later or enter the receipt manually.' : 'Receipt scanning is unavailable. Please try again later.', upstream.status === 429 ? 429 : 502)
+    if (!upstream.ok) {
+      const details = await upstream.json().catch(() => null) as { error?: { details?: { reason?: string }[] } } | null
+      const invalidKey = details?.error?.details?.some(detail => detail.reason === 'API_KEY_INVALID') ?? false
+      console.error('Receipt scan Google rejection', { status: upstream.status, model: SCAN_MODELS[model], invalidKey })
+      if (invalidKey || upstream.status === 401) return error('Google rejected the API key. The organizer needs to update the GEMINI_API_KEY secret and redeploy.', 502)
+      if (upstream.status === 403) return error('Google denied access to scanning (HTTP 403). The organizer needs to check the API key’s permissions and restrictions.', 502)
+      if (upstream.status === 404) return error(`Google could not find or grant access to the scanner model ${SCAN_MODELS[model]} (HTTP 404).`, 502)
+      if (upstream.status === 400) return error('Google rejected the receipt request (HTTP 400). Try a different JPG or PNG photo; the organizer may need to check the scanner configuration.', 502)
+      if (upstream.status === 429) return error('Google’s scanning quota is temporarily exhausted. Try again later or enter the receipt manually.', 429)
+      return error(`Google’s receipt scanner is unavailable (HTTP ${upstream.status}). Please try again later.`, 502)
+    }
     return json(await upstream.json())
-  } catch { return error('Receipt scanning is unavailable. Please try again later.', 502) }
+  } catch (cause) {
+    const timedOut = cause instanceof Error && ['TimeoutError', 'AbortError'].includes(cause.name)
+    console.error('Receipt scan connection failure', { timedOut })
+    return error(timedOut ? 'Google’s receipt scanner took too long. Please try again.' : 'Could not connect to Google’s receipt scanner. Please try again later.', 502)
+  }
 }
