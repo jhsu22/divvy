@@ -4,7 +4,7 @@ interface Props {
   onBack?: () => void
 }
 
-const STEPS = ['Key', 'Receipt', 'People', 'Assign', 'Summary']
+const STEPS = ['Receipt', 'Review', 'Split', 'Share']
 
 export default function Header({ step, total, onBack }: Props) {
   return (

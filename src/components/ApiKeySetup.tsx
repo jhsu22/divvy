@@ -21,8 +21,7 @@ export default function ApiKeySetup({ onDone }: Props) {
       <div>
         <h2 className="font-serif text-xl font-semibold">API Key</h2>
         <p className="font-body text-sm italic text-ink/60 mt-1 leading-snug">
-          Your key is stored locally and never leaves your device. It is used only to send
-          receipt images to Gemini for parsing.
+          Your key is saved on this device and sent to Google with receipt images to parse them.
         </p>
       </div>
 

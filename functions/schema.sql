@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS scan_quota (
+  day TEXT PRIMARY KEY,
+  requests INTEGER NOT NULL DEFAULT 0
+);

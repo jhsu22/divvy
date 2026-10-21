@@ -195,7 +195,7 @@ export default function ItemAssign({ receipt, people, onUpdate, onTipChange, onD
 
   const assigningItem = receipt.items.find((i) => i.id === assigningId) ?? null
   const unassigned = receipt.items.filter((i) => i.assignees.length === 0).length
-  const allAssigned = unassigned === 0
+  const allAssigned = receipt.items.length > 0 && unassigned === 0
 
   function saveAssignees(itemId: string, assignees: string[]) {
     onUpdate(receipt.items.map((item) => item.id === itemId ? { ...item, assignees } : item))

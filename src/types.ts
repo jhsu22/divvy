@@ -6,6 +6,7 @@ export interface LineItem {
 }
 
 export interface Receipt {
+  splitMode?: 'items' | 'equal'
   items: LineItem[]
   subtotal: number
   tax: number
@@ -15,7 +16,7 @@ export interface Receipt {
   date?: string
 }
 
-export type Step = 'setup' | 'upload' | 'people' | 'assign' | 'summary'
+export type Step = 'setup' | 'review' | 'upload' | 'people' | 'assign' | 'summary'
 
 export interface PersonTotal {
   name: string

@@ -1,55 +1,43 @@
 import { useRef, useState } from 'react'
-import { parseReceipt } from '../lib/claude'
+import type { ScanModel } from '../lib/claude'
+import { scanPhoto } from '../lib/scanning'
+import { writeStored } from '../lib/storage'
+import ScanAccess from './ScanAccess'
 import type { Receipt } from '../types'
 
 interface Props {
-  apiKey: string
   onDone: (receipt: Receipt) => void
 }
 
-export default function ReceiptUpload({ apiKey, onDone }: Props) {
+export default function ReceiptUpload({ onDone }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [scanned, setScanned] = useState<Receipt | null>(null)
-  const [restaurant, setRestaurant] = useState('')
-  const [date, setDate] = useState('')
 
   function handleFile(file: File) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      setError('Use a JPG, PNG, or WebP receipt image under 5 MB.'); return
+    }
     const reader = new FileReader()
     reader.onload = (e) => setPreview(e.target?.result as string)
     reader.readAsDataURL(file)
-    setScanned(null)
-    setRestaurant('')
-    setDate('')
+    setError(null)
   }
 
-  async function scan() {
+  async function scan(model: ScanModel = 'lite') {
     if (!preview) return
     setLoading(true)
     setError(null)
     try {
-      const [header, b64] = preview.split(',')
-      const mediaType = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg'
-      const receipt = await parseReceipt(apiKey, b64, mediaType)
-      setScanned(receipt)
-      setRestaurant(receipt.restaurant ?? '')
-      setDate(receipt.date ?? '')
+      const receipt = await scanPhoto(preview, model)
+      writeStored('divvy-photo', preview)
+      onDone(receipt)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
-  }
-
-  function confirm() {
-    if (!scanned) return
-    onDone({
-      ...scanned,
-      restaurant: restaurant.trim() || undefined,
-      date: date.trim() || undefined,
-    })
   }
 
   return (
@@ -61,12 +49,16 @@ export default function ReceiptUpload({ apiKey, onDone }: Props) {
         </p>
       </div>
 
+      <button disabled={loading} className="secondary w-full" onClick={() => { writeStored('divvy-photo', null); onDone({ items: [{ id: crypto.randomUUID(), name: '', price: 0, assignees: [] }], subtotal: 0, tax: 0, tip: 0, total: 0 }) }}>Enter receipt manually</button>
+      <ScanAccess disabled={loading} />
+      <p className="text-xs text-ink/60">Receipt photos are sent to Google for scanning. You can review the result and retry a difficult receipt.</p>
       <div className="rule-thin" />
 
       <input
         ref={fileRef}
+        disabled={loading}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         className="hidden"
         onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
       />
@@ -89,7 +81,8 @@ export default function ReceiptUpload({ apiKey, onDone }: Props) {
             className="w-full max-h-64 object-contain border border-ink/20"
           />
           <button
-            onClick={() => { setPreview(null); setScanned(null); setError(null) }}
+            disabled={loading}
+            onClick={() => { setPreview(null); setError(null) }}
             className="w-full border border-ink/30 py-2 font-mono text-xs uppercase tracking-widest text-ink/50"
           >
             Retake
@@ -97,59 +90,22 @@ export default function ReceiptUpload({ apiKey, onDone }: Props) {
         </div>
       )}
 
-      {scanned && (
-        <div className="space-y-3">
-          <div className="rule-thin" />
-          <div className="space-y-2">
-            <div>
-              <label className="font-mono text-xs uppercase tracking-widest text-ink/50 block mb-1">
-                Restaurant
-              </label>
-              <input
-                type="text"
-                value={restaurant}
-                onChange={(e) => setRestaurant(e.target.value)}
-                placeholder="e.g. Nobu"
-                className="w-full border border-ink/30 px-3 py-2 font-body text-sm bg-paper focus:outline-none focus:border-ink"
-              />
-            </div>
-            <div>
-              <label className="font-mono text-xs uppercase tracking-widest text-ink/50 block mb-1">
-                Date
-              </label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full border border-ink/30 px-3 py-2 font-body text-sm bg-paper focus:outline-none focus:border-ink"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
       {error && (
-        <p className="font-mono text-xs text-red-700 border border-red-300 px-3 py-2">
+        <p role="alert" className="font-mono text-xs text-red-700 border border-red-300 px-3 py-2">
           {error}
         </p>
       )}
 
-      {!scanned ? (
+      {error && preview && <button disabled={loading} className="secondary w-full" onClick={() => scan('flash')}>Retry difficult receipt</button>}
+
         <button
-          onClick={scan}
+          onClick={() => scan()}
           disabled={!preview || loading}
           className="w-full border border-ink py-2.5 font-mono text-sm uppercase tracking-widest disabled:opacity-30 active:bg-ink active:text-paper transition-colors"
         >
-          {loading ? 'Scanning…' : 'Scan Receipt →'}
+          {loading ? 'Scanning…' : 'Scan & Review →'}
         </button>
-      ) : (
-        <button
-          onClick={confirm}
-          className="w-full border border-ink py-2.5 font-mono text-sm uppercase tracking-widest active:bg-ink active:text-paper transition-colors"
-        >
-          Continue →
-        </button>
-      )}
+
     </div>
   )
 }

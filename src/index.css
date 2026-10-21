@@ -26,3 +26,9 @@
     border-top: 1px solid #1a1a18;
   }
 }
+
+@layer components {
+  .field { @apply block bg-transparent border border-ink/30 px-3 py-2 mt-1 font-body text-sm focus:outline-none focus:border-ink; }
+  .primary { @apply border border-ink bg-ink text-paper px-3 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-30; }
+  .secondary { @apply border border-ink/30 px-2 py-2 font-mono text-xs active:bg-ink/5; }
+}

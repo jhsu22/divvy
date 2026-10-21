@@ -1,129 +1,63 @@
 import { useState, useEffect } from 'react'
 import type { Receipt, LineItem, Step } from './types'
 import { decodeShare } from './lib/share'
+import { normalizeReceipt } from './lib/calculations'
+import { readStored, writeStored } from './lib/storage'
 import Header from './components/Header'
-import ApiKeySetup from './components/ApiKeySetup'
 import ReceiptUpload from './components/ReceiptUpload'
+import ReceiptReview from './components/ReceiptReview'
 import PeopleSetup from './components/PeopleSetup'
 import ItemAssign from './components/ItemAssign'
 import SummaryView from './components/SummaryView'
 
-const STEP_INDEX: Record<Step, number> = {
-  setup: 0,
-  upload: 1,
-  people: 2,
-  assign: 3,
-  summary: 4,
-}
-
-const PREV_STEP: Partial<Record<Step, Step>> = {
-  upload: 'setup',
-  people: 'upload',
-  assign: 'people',
-  summary: 'assign',
-}
-
+type Draft = { receipt: Receipt | null; people: string[]; step: Step; mode: 'items' | 'equal'; payer: string }
+const empty: Draft = { receipt: null, people: [], step: 'upload', mode: 'items', payer: '' }
+const indices: Record<Step, number> = { setup: 0, upload: 0, review: 1, people: 2, assign: 2, summary: 3 }
 export default function App() {
-  const hasHash = !!window.location.hash.slice(1)
-
-  const [apiKey, setApiKey] = useState<string>(
-    () => localStorage.getItem('divvy-api-key') ?? '',
-  )
-  const [step, setStep] = useState<Step>(() => {
-    if (hasHash) return 'summary'
-    return localStorage.getItem('divvy-api-key') ? 'upload' : 'setup'
-  })
-  const [receipt, setReceipt] = useState<Receipt | null>(null)
-  const [people, setPeople] = useState<string[]>([])
-
+  const [shared, setShared] = useState(!!window.location.hash.slice(1))
+  const [draft, setDraft] = useState<Draft>(() => shared ? empty : readStored('divvy-draft', empty))
+  const [shareError, setShareError] = useState('')
+  const { receipt, people, step, mode, payer } = draft
+  const update = (patch: Partial<Draft>) => setDraft(d => ({ ...d, ...patch }))
+  useEffect(() => { if (!shared) writeStored('divvy-draft', draft) }, [draft, shared])
   useEffect(() => {
     const hash = window.location.hash.slice(1)
     if (!hash) return
-    decodeShare(hash)
-      .then((data) => {
-        const d = data as { receipt: Receipt; people: string[] }
-        setReceipt(d.receipt)
-        setPeople(d.people)
-      })
-      .catch(() => setStep('upload'))
+    decodeShare(hash).then(data => {
+      const d = data as { receipt: Receipt; people: string[]; payer?: string }
+      if (!d.receipt || !Array.isArray(d.receipt.items) || !Array.isArray(d.people) || !d.people.length) throw new Error('Invalid bill')
+      setDraft({ receipt: normalizeReceipt(d.receipt), people: d.people, payer: d.payer ?? '', mode: 'items', step: 'summary' })
+    }).catch(() => { setShareError('This bill link could not be opened. You can start a new bill.'); setShared(false) })
   }, [])
-
-  function handleApiKey(key: string) {
-    setApiKey(key)
-    setStep('upload')
-  }
-
-  function handleReceipt(r: Receipt) {
-    setReceipt(r)
-    setStep('people')
-  }
-
-  function handleItemsUpdate(items: LineItem[]) {
-    setReceipt((r) => (r ? { ...r, items } : r))
-  }
-
-  function handleTipChange(tip: number) {
-    setReceipt((r) => r ? { ...r, tip, total: r.subtotal + r.tax + tip } : r)
-  }
-
-  function goBack() {
-    const prev = PREV_STEP[step]
-    if (prev) setStep(prev)
-  }
-
   function reset() {
-    setReceipt(null)
-    setPeople([])
-    setStep('upload')
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    writeStored('divvy-photo', null)
+    setShareError(''); setShared(false); setDraft(empty)
   }
-
-  const canGoBack = step in PREV_STEP
-
-  return (
-    <div className="min-h-screen bg-paper">
-      <div className="max-w-md mx-auto">
-        <Header
-          step={STEP_INDEX[step]}
-          total={receipt?.total ?? 0}
-          onBack={canGoBack ? goBack : undefined}
-        />
-
-        <main>
-          {step === 'setup' && <ApiKeySetup onDone={handleApiKey} />}
-
-          {step === 'upload' && (
-            <ReceiptUpload apiKey={apiKey} onDone={handleReceipt} />
-          )}
-
-          {step === 'people' && (
-            <PeopleSetup
-              people={people}
-              onChange={setPeople}
-              onDone={() => setStep('assign')}
-            />
-          )}
-
-          {step === 'assign' && receipt && (
-            <ItemAssign
-              receipt={receipt}
-              people={people}
-              onUpdate={handleItemsUpdate}
-              onTipChange={handleTipChange}
-              onDone={() => setStep('summary')}
-            />
-          )}
-
-          {step === 'summary' && receipt && (
-            <SummaryView receipt={receipt} people={people} onReset={reset} />
-          )}
-
-          {step === 'summary' && !receipt && (
-            <div className="px-4 py-16 text-center font-mono text-xs uppercase tracking-widest text-ink/30">
-              Loading…
-            </div>
-          )}
-        </main>
-      </div>
-    </div>
-  )
+  function changePeople(next: string[]) {
+    update({ people: next, payer: next.includes(payer) ? payer : '', receipt: receipt ? { ...receipt, items: receipt.items.map(i => ({ ...i, assignees: i.assignees.filter(p => next.includes(p)) })) } : null })
+  }
+  function continueSplit() {
+    if (!receipt) return
+    if (mode === 'equal') update({ receipt: { ...receipt, splitMode: 'equal', items: receipt.items.map(i => ({ ...i, assignees: [...people] })) }, step: 'summary' })
+    else update({ receipt: { ...receipt, splitMode: 'items' }, step: 'assign' })
+  }
+  function back() {
+    const previous: Partial<Record<Step, Step>> = { review: 'upload', people: 'review', assign: 'people', summary: mode === 'equal' ? 'people' : 'assign' }
+    if (previous[step]) update({ step: previous[step]! })
+  }
+  return <div className="min-h-screen bg-paper"><div className="max-w-md mx-auto">
+    <Header step={indices[step]} total={receipt?.total ?? 0} onBack={!shared && step !== 'upload' ? back : undefined} />
+    <main>
+      {shareError && <p role="alert" className="px-4 py-3 text-red-700">{shareError}</p>}
+      {shared && !receipt ? <p className="p-6">Loading bill…</p> : <>
+      {(step === 'upload' || step === 'setup') && <ReceiptUpload onDone={r => update({ receipt: r, step: 'review' })} />}
+      {step === 'review' && receipt && <ReceiptReview receipt={receipt} onChange={r => update({ receipt: r })} onDone={() => update({ step: 'people' })} />}
+      {step === 'people' && <PeopleSetup people={people} onChange={changePeople} mode={mode} onModeChange={mode => update({ mode })} payer={payer} onPayerChange={payer => update({ payer })} onDone={continueSplit} />}
+      {step === 'assign' && receipt && <ItemAssign receipt={receipt} people={people} onUpdate={(items: LineItem[]) => update({ receipt: normalizeReceipt({ ...receipt, items }) })} onTipChange={tip => update({ receipt: normalizeReceipt({ ...receipt, tip }) })} onDone={() => update({ step: 'summary' })} />}
+      {step === 'summary' && receipt && <SummaryView receipt={receipt} people={people} payer={payer} onReset={reset} />}
+      </>}
+    </main>
+    {!shared && receipt && <p className="text-center font-mono text-[10px] text-ink/40 py-4">Draft saved on this device · <button onClick={reset} className="underline">Start over</button></p>}
+  </div></div>
 }
